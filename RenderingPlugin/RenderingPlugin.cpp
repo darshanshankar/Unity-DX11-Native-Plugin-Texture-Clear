@@ -20,14 +20,38 @@
 
 
 // Prints a string
+extern "C"
+{
+void(_stdcall *debugLog)(const char *) = NULL;
+void(_stdcall *debugWarn)(const char *) = NULL;
+void(_stdcall *debugError)(const char *) = NULL;
+
+void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API LinkDebug(void(_stdcall *d)(const char *), void(_stdcall *w)(const char *), void(_stdcall *e)(const char *))
+{
+    debugLog = d;
+    debugWarn = w;
+    debugError = e;
+}
+
 static void DebugLog (const char* str)
 {
-    #if UNITY_WIN
-    OutputDebugStringA (str);
-    #else
-    printf ("%s", str);
-    #endif
+    if (debugLog)
+        debugLog(str);
 }
+
+static void DebugWarn (const char* str)
+{
+    if (debugWarn)
+        debugWarn(str);
+}
+
+static void DebugError (const char* str)
+{
+    if (debugError)
+        debugError(str);
+}
+}
+
 
 // COM-like Release macro
 #ifndef SAFE_RELEASE

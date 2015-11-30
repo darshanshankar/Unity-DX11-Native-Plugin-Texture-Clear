@@ -6,6 +6,23 @@ using System.Runtime.InteropServices;
 
 public class UseRenderingPlugin : MonoBehaviour
 {
+
+    [DllImport("RenderingPlugin")]
+    private static extern void LinkDebug([MarshalAs(UnmanagedType.FunctionPtr)]IntPtr debugLogCall,
+                                         [MarshalAs(UnmanagedType.FunctionPtr)]IntPtr debugWarnCall,
+                                         [MarshalAs(UnmanagedType.FunctionPtr)]IntPtr debugErrorCall);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate void DebugLogging(string log);
+    private static readonly DebugLogging debugLog = DebugLogWrapper;
+    private static readonly DebugLogging debugWarn = DebugWarnWrapper;
+    private static readonly DebugLogging debugError = DebugErrorWrapper;
+    private static readonly IntPtr functionPointerDebug = Marshal.GetFunctionPointerForDelegate(debugLog);
+    private static readonly IntPtr functionPointerWarn = Marshal.GetFunctionPointerForDelegate(debugWarn);
+    private static readonly IntPtr functionPointerError = Marshal.GetFunctionPointerForDelegate(debugError);
+    private static void DebugLogWrapper(string log) { Debug.Log(log); }
+    private static void DebugWarnWrapper(string log) { Debug.LogWarning(log); }
+    private static void DebugErrorWrapper(string log) { Debug.LogError(log); }
+
     // Native plugin rendering events are only called if a plugin is used
     // by some script. This means we have to DllImport at least
     // one function in some active script.
@@ -32,6 +49,8 @@ public class UseRenderingPlugin : MonoBehaviour
 
     IEnumerator Start()
     {
+        LinkDebug(functionPointerDebug, functionPointerWarn, functionPointerError);
+
         SetUnityStreamingAssetsPath(Application.streamingAssetsPath);
 
         CreateTextureAndPassToPlugin();
