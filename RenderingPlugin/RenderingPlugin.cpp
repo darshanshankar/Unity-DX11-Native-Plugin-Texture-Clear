@@ -108,14 +108,40 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
 // --------------------------------------------------------------------------
 // SetTextureFromUnity, an example function we export which is called by one of the scripts.
 
-static void* g_TexturePointer = NULL;
+static ID3D11Device* g_D3D11Device = NULL;
+static ID3D11Texture2D* g_TexturePointer = NULL;
+static ID3D11RenderTargetView* g_pD3D11RenderTargetView = NULL;
 
 extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API SetTextureFromUnity(void* texturePtr)
 {
     // A script calls this at initialization time; just remember the texture pointer here.
     // Will update texture pixels each frame from the plugin rendering event (texture update
     // needs to happen on the rendering thread).
-    g_TexturePointer = texturePtr;
+    switch (s_DeviceType)
+    {
+    case kUnityGfxRendererD3D11:
+        g_TexturePointer = reinterpret_cast<ID3D11Texture2D*>(texturePtr);
+
+        if (g_D3D11Device && g_TexturePointer)
+        {
+            D3D11_TEXTURE2D_DESC texDesc = { 0 };
+
+            // Get the format of the texture
+            g_TexturePointer->GetDesc(&texDesc);
+
+            D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = { texDesc.Format };
+            rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+
+            // Create the render target view for the texture
+            g_D3D11Device->CreateRenderTargetView
+                (
+                    g_TexturePointer,
+                    &rtvDesc,
+                    &g_pD3D11RenderTargetView
+                    );
+        }
+        break;
+    }
 }
 
 
@@ -283,7 +309,6 @@ bool LoadFileIntoBuffer(const std::string& fileName, Buffer& data)
 
 #if SUPPORT_D3D11
 
-static ID3D11Device* g_D3D11Device = NULL;
 static ID3D11Buffer* g_D3D11VB = NULL; // vertex buffer
 static ID3D11Buffer* g_D3D11CB = NULL; // constant buffer
 static ID3D11VertexShader* g_D3D11VertexShader = NULL;
@@ -478,6 +503,30 @@ static void DoRendering (const float* worldMatrix, const float* identityMatrix, 
         ID3D11DeviceContext* ctx = NULL;
         g_D3D11Device->GetImmediateContext (&ctx);
 
+        ID3D11RenderTargetView*  pCurrentRenderTarget;
+        ID3D11DepthStencilView*  pCurrentDepthStencil;
+
+        // Get the current render targets
+        ctx->OMGetRenderTargets(1, &pCurrentRenderTarget, &pCurrentDepthStencil);
+
+        ctx->OMSetRenderTargets(1, &g_pD3D11RenderTargetView, nullptr);
+
+        /*
+        // update native texture from code
+        D3D11_TEXTURE2D_DESC desc;
+        g_TexturePointer->GetDesc(&desc);
+        unsigned char* data = new unsigned char[desc.Width*desc.Height * 4];
+        FillTextureFromCode(desc.Width, desc.Height, desc.Width * 4, data);
+        ctx->UpdateSubresource(g_TexturePointer, 0, NULL, data, desc.Width * 4, 0);
+        delete[] data;
+        */
+        const float CLEAR_CLR[4] = { 1, 1, 0, 1 };  // Yellow
+
+        ctx->ClearRenderTargetView(g_pD3D11RenderTargetView, CLEAR_CLR);
+
+        // Restore the original render target
+        ctx->OMSetRenderTargets(1, &pCurrentRenderTarget, pCurrentDepthStencil);
+
         // update constant buffer - just the world matrix in our case
         ctx->UpdateSubresource (g_D3D11CB, 0, NULL, worldMatrix, 64, 0);
 
@@ -496,19 +545,6 @@ static void DoRendering (const float* worldMatrix, const float* identityMatrix, 
         UINT offset = 0;
         ctx->IASetVertexBuffers (0, 1, &g_D3D11VB, &stride, &offset);
         ctx->Draw (3, 0);
-
-        // update native texture from code
-        if (g_TexturePointer)
-        {
-            ID3D11Texture2D* d3dtex = (ID3D11Texture2D*)g_TexturePointer;
-            D3D11_TEXTURE2D_DESC desc;
-            d3dtex->GetDesc (&desc);
-
-            unsigned char* data = new unsigned char[desc.Width*desc.Height*4];
-            FillTextureFromCode (desc.Width, desc.Height, desc.Width*4, data);
-            ctx->UpdateSubresource (d3dtex, 0, NULL, data, desc.Width*4, 0);
-            delete[] data;
-        }
 
         ctx->Release();
     }
